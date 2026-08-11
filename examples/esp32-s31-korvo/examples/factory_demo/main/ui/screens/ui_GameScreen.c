@@ -20,6 +20,9 @@ lv_obj_t * ui_GameImageWhack = NULL;
 lv_obj_t * ui_GameContainerNonogramGame = NULL;
 lv_obj_t * ui_GameLabelNonogramGameName = NULL;
 lv_obj_t * ui_GameImageNonogram = NULL;
+lv_obj_t * ui_GameContainerJumpPrinceGame = NULL;
+lv_obj_t * ui_GameLabelJumpPrinceGameName = NULL;
+lv_obj_t * ui_GameImageJumpPrince = NULL;
 // event funtions
 
 // build funtions
@@ -199,6 +202,44 @@ void ui_GameScreen_screen_init(void)
     lv_obj_set_align(ui_GameImageNonogram, LV_ALIGN_TOP_MID);
     lv_obj_remove_flag(ui_GameImageNonogram, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
+    ui_GameContainerJumpPrinceGame = lv_obj_create(ui_GameContainerBackground);
+    lv_obj_remove_style_all(ui_GameContainerJumpPrinceGame);
+    lv_obj_set_width(ui_GameContainerJumpPrinceGame, 180);
+    lv_obj_set_height(ui_GameContainerJumpPrinceGame, 200);
+    lv_obj_set_x(ui_GameContainerJumpPrinceGame, 20);
+    lv_obj_set_y(ui_GameContainerJumpPrinceGame, 460);
+    lv_obj_remove_flag(ui_GameContainerJumpPrinceGame, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_set_style_radius(ui_GameContainerJumpPrinceGame, 15, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_GameContainerJumpPrinceGame, lv_color_hex(0xDDB378), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_GameContainerJumpPrinceGame, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(ui_GameContainerJumpPrinceGame, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(ui_GameContainerJumpPrinceGame, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(ui_GameContainerJumpPrinceGame, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_color(ui_GameContainerJumpPrinceGame, lv_color_hex(0x81807B), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_opa(ui_GameContainerJumpPrinceGame, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(ui_GameContainerJumpPrinceGame, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_spread(ui_GameContainerJumpPrinceGame, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_offset_x(ui_GameContainerJumpPrinceGame, 5, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_offset_y(ui_GameContainerJumpPrinceGame, 5, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_GameLabelJumpPrinceGameName = lv_label_create(ui_GameContainerJumpPrinceGame);
+    lv_obj_set_width(ui_GameLabelJumpPrinceGameName, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_GameLabelJumpPrinceGameName, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_GameLabelJumpPrinceGameName, 20);
+    lv_obj_set_y(ui_GameLabelJumpPrinceGameName, -20);
+    lv_obj_set_align(ui_GameLabelJumpPrinceGameName, LV_ALIGN_BOTTOM_LEFT);
+    lv_label_set_text(ui_GameLabelJumpPrinceGameName, "Jump Prince");
+    lv_obj_set_style_text_font(ui_GameLabelJumpPrinceGameName, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_GameImageJumpPrince = lv_image_create(ui_GameContainerJumpPrinceGame);
+    lv_image_set_src(ui_GameImageJumpPrince, &ui_img_jumpprince_png);
+    lv_obj_set_width(ui_GameImageJumpPrince, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_GameImageJumpPrince, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_GameImageJumpPrince, -5);
+    lv_obj_set_y(ui_GameImageJumpPrince, 10);
+    lv_obj_set_align(ui_GameImageJumpPrince, LV_ALIGN_TOP_MID);
+    lv_obj_remove_flag(ui_GameImageJumpPrince, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
 }
 
 void ui_GameScreen_screen_destroy(void)
@@ -221,5 +262,8 @@ void ui_GameScreen_screen_destroy(void)
     ui_GameContainerNonogramGame = NULL;
     ui_GameLabelNonogramGameName = NULL;
     ui_GameImageNonogram = NULL;
+    ui_GameContainerJumpPrinceGame = NULL;
+    ui_GameLabelJumpPrinceGameName = NULL;
+    ui_GameImageJumpPrince = NULL;
 
 }

@@ -6,6 +6,7 @@
 #include <string.h>
 #include <esp_log.h>
 #include "lvgl.h"
+#include "jump_prince_game.h"
 #include "nonogram_game.h"
 #include "snake_game.h"
 #include "ui.h"
@@ -21,6 +22,15 @@
 #define NONOGRAM_TIMER_PERIOD_MS 100
 #define NONOGRAM_BOARD_PIXELS 300
 #define NONOGRAM_HINT_PIXELS 75
+#define JUMP_PRINCE_TIMER_PERIOD_MS 33
+#define JUMP_PRINCE_TILE_PIXELS 25
+#define JUMP_PRINCE_PLAY_W (JUMP_PRINCE_MAP_W * JUMP_PRINCE_TILE_PIXELS)
+#define JUMP_PRINCE_PLAY_H (JUMP_PRINCE_MAP_H * JUMP_PRINCE_TILE_PIXELS)
+#define JUMP_PRINCE_LEFT_BUTTON_RIGHT_X 160
+#define JUMP_PRINCE_RIGHT_BUTTON_LEFT_X 320
+
+extern const lv_image_dsc_t * const ui_img_jump_prince_player_images[2][7];
+extern const lv_image_dsc_t * const ui_img_jump_prince_tile_images[7][6];
 
 typedef enum {
     RAPID_TAP_STOPPED,
@@ -102,12 +112,37 @@ typedef struct {
     bool tools_open;
 } nonogram_ui_t;
 
+typedef struct {
+    lv_obj_t *screen;
+    lv_obj_t *play_area;
+    lv_obj_t *tiles[JUMP_PRINCE_MAP_H][JUMP_PRINCE_MAP_W];
+    lv_obj_t *player;
+    lv_obj_t *charge_bars[3];
+    lv_obj_t *screen_label;
+    lv_obj_t *control_pad;
+    lv_timer_t *timer;
+    lv_point_t control_point;
+    uint32_t last_tick;
+    int rendered_screen;
+    bool input_left;
+    bool input_right;
+    bool input_jump;
+    bool touch_active;
+    bool touch_jump_active;
+    bool release_clear_inputs;
+    int8_t touch_direction;
+} jump_prince_ui_t;
+
 static snake_game_t s_snake_game;
 static snake_ui_t s_snake_ui;
 static rapid_tap_ui_t s_rapid_tap;
 static whack_ui_t s_whack;
 static nonogram_game_t s_nonogram_game;
 static nonogram_ui_t s_nonogram;
+static jump_prince_game_t s_jump_prince_game;
+static jump_prince_ui_t s_jump_prince_ui = {
+    .rendered_screen = -1,
+};
 static lv_obj_t *s_snake_pause_overlay;
 static lv_obj_t *s_snake_input_layer;
 static lv_obj_t *s_rapid_tap_pause_overlay;
@@ -1248,6 +1283,332 @@ static void nonogram_screen_loaded_cb(lv_event_t *event)
     nonogram_start_game();
 }
 
+static void jump_prince_apply_input(void)
+{
+    jump_prince_game_set_input(&s_jump_prince_game, s_jump_prince_ui.input_left,
+                               s_jump_prince_ui.input_right, s_jump_prince_ui.input_jump);
+}
+
+static void jump_prince_set_control_style(lv_obj_t *btn, uint32_t color)
+{
+    lv_obj_remove_style_all(btn);
+    lv_obj_set_size(btn, 96, 58);
+    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(btn, 8, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(color), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(btn, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(btn, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_opa(btn, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(btn, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_color(btn, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_opa(btn, 120, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(btn, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_offset_x(btn, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_offset_y(btn, 3, LV_PART_MAIN | LV_STATE_DEFAULT);
+}
+
+static lv_obj_t *jump_prince_create_text_button(lv_obj_t *parent,
+                                                const char *text,
+                                                int32_t x,
+                                                int32_t y,
+                                                uint32_t color)
+{
+    lv_obj_t *btn = lv_obj_create(parent);
+    jump_prince_set_control_style(btn, color);
+    lv_obj_set_pos(btn, x, y);
+
+    lv_obj_t *label = lv_label_create(btn);
+    lv_label_set_text(label, text);
+    lv_obj_set_align(label, LV_ALIGN_CENTER);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(label, lv_color_hex(0x111111), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    return btn;
+}
+
+static void jump_prince_draw_map(void)
+{
+    int screen_index = jump_prince_game_get_screen_index(&s_jump_prince_game);
+    if(screen_index == s_jump_prince_ui.rendered_screen) {
+        return;
+    }
+
+    s_jump_prince_ui.rendered_screen = screen_index;
+    for(uint8_t y = 0; y < JUMP_PRINCE_MAP_H; y++) {
+        for(uint8_t x = 0; x < JUMP_PRINCE_MAP_W; x++) {
+            lv_obj_t *tile = s_jump_prince_ui.tiles[y][x];
+            if(!tile) {
+                continue;
+            }
+
+            if(jump_prince_game_tile_full(&s_jump_prince_game, x, y)) {
+                uint8_t sprite_x = 0;
+                uint8_t sprite_y = 0;
+                jump_prince_game_get_tile_sprite(&s_jump_prince_game, x, y, &sprite_x, &sprite_y);
+                if(sprite_x < 7 && sprite_y < 6) {
+                    lv_image_set_src(tile, ui_img_jump_prince_tile_images[sprite_x][sprite_y]);
+                }
+                lv_obj_remove_flag(tile, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(tile, LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+    }
+}
+
+static void jump_prince_draw_player(void)
+{
+    if(!s_jump_prince_ui.player) {
+        return;
+    }
+
+    uint8_t sprite = jump_prince_game_get_player_sprite(&s_jump_prince_game);
+    if(sprite > 6) {
+        sprite = 0;
+    }
+    lv_image_set_src(s_jump_prince_ui.player,
+                     s_jump_prince_game.is_facing_right ? ui_img_jump_prince_player_images[0][sprite]
+                                                        : ui_img_jump_prince_player_images[1][sprite]);
+
+    int32_t x = (int32_t)(jump_prince_game_player_screen_x(&s_jump_prince_game) * JUMP_PRINCE_TILE_PIXELS) -
+                JUMP_PRINCE_TILE_PIXELS / 2;
+    int32_t y = (int32_t)(jump_prince_game_player_screen_y(&s_jump_prince_game) * JUMP_PRINCE_TILE_PIXELS) -
+                (JUMP_PRINCE_TILE_PIXELS * 10) / 16;
+
+    lv_obj_set_pos(s_jump_prince_ui.player, x, y);
+
+    int32_t charge_w = (int32_t)(jump_prince_game_jump_charge(&s_jump_prince_game) * 70.0f);
+    int8_t active_bar = s_jump_prince_ui.touch_direction < 0 ? 0 : (s_jump_prince_ui.touch_direction > 0 ? 2 : 1);
+    for(uint8_t i = 0; i < 3; i++) {
+        lv_obj_set_width(s_jump_prince_ui.charge_bars[i],
+                         s_jump_prince_ui.input_jump && i == active_bar ? charge_w : 0);
+    }
+
+    char text[20];
+    snprintf(text, sizeof(text), "Stage %d", jump_prince_game_get_screen_index(&s_jump_prince_game));
+    lv_label_set_text(s_jump_prince_ui.screen_label, text);
+}
+
+static void jump_prince_draw(void)
+{
+    jump_prince_draw_map();
+    jump_prince_draw_player();
+}
+
+static void jump_prince_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    if(jump_prince_game_get_state(&s_jump_prince_game) != JUMP_PRINCE_RUNNING) {
+        s_jump_prince_ui.last_tick = lv_tick_get();
+        return;
+    }
+
+    uint32_t now = lv_tick_get();
+    uint32_t elapsed = s_jump_prince_ui.last_tick ? lv_tick_elaps(s_jump_prince_ui.last_tick) : JUMP_PRINCE_TIMER_PERIOD_MS;
+    s_jump_prince_ui.last_tick = now;
+    jump_prince_game_update(&s_jump_prince_game, elapsed);
+    if(s_jump_prince_ui.release_clear_inputs) {
+        s_jump_prince_ui.input_left = false;
+        s_jump_prince_ui.input_right = false;
+        s_jump_prince_ui.input_jump = false;
+        s_jump_prince_ui.release_clear_inputs = false;
+        jump_prince_apply_input();
+    }
+    jump_prince_draw();
+}
+
+static void jump_prince_control_update_from_point(const lv_point_t *point, bool release)
+{
+    if(!point) {
+        return;
+    }
+
+    bool jump = s_jump_prince_ui.touch_jump_active;
+    s_jump_prince_ui.input_left = s_jump_prince_ui.touch_direction < 0;
+    s_jump_prince_ui.input_right = s_jump_prince_ui.touch_direction > 0;
+    s_jump_prince_ui.input_jump = release ? false : jump;
+    s_jump_prince_ui.release_clear_inputs = release && jump;
+    jump_prince_apply_input();
+}
+
+static void jump_prince_control_event_cb(lv_event_t *event)
+{
+    lv_event_code_t code = lv_event_get_code(event);
+    lv_indev_t *indev = lv_indev_get_act();
+    lv_point_t point = s_jump_prince_ui.control_point;
+    if(indev) {
+        lv_indev_get_point(indev, &point);
+        s_jump_prince_ui.control_point = point;
+    }
+
+    if(code == LV_EVENT_PRESSED) {
+        s_jump_prince_ui.touch_active = true;
+        s_jump_prince_ui.touch_jump_active = true;
+        if(point.x < JUMP_PRINCE_LEFT_BUTTON_RIGHT_X) {
+            s_jump_prince_ui.touch_direction = -1;
+        } else if(point.x > JUMP_PRINCE_RIGHT_BUTTON_LEFT_X) {
+            s_jump_prince_ui.touch_direction = 1;
+        } else {
+            s_jump_prince_ui.touch_direction = 0;
+        }
+        jump_prince_control_update_from_point(&point, false);
+    } else if(code == LV_EVENT_PRESSING) {
+        if(s_jump_prince_ui.touch_active) {
+            jump_prince_control_update_from_point(&point, false);
+        }
+    } else if(code == LV_EVENT_RELEASED) {
+        jump_prince_control_update_from_point(&point, true);
+        s_jump_prince_ui.touch_active = false;
+        s_jump_prince_ui.touch_jump_active = false;
+        s_jump_prince_ui.touch_direction = 0;
+    } else if(code == LV_EVENT_PRESS_LOST) {
+        s_jump_prince_ui.input_left = false;
+        s_jump_prince_ui.input_right = false;
+        s_jump_prince_ui.input_jump = false;
+        s_jump_prince_ui.touch_active = false;
+        s_jump_prince_ui.touch_jump_active = false;
+        s_jump_prince_ui.touch_direction = 0;
+        s_jump_prince_ui.release_clear_inputs = false;
+        jump_prince_apply_input();
+    }
+}
+
+static void jump_prince_restart_clicked_cb(lv_event_t *event)
+{
+    (void)event;
+    s_jump_prince_ui.input_left = false;
+    s_jump_prince_ui.input_right = false;
+    s_jump_prince_ui.input_jump = false;
+    s_jump_prince_ui.touch_active = false;
+    s_jump_prince_ui.touch_jump_active = false;
+    s_jump_prince_ui.release_clear_inputs = false;
+    s_jump_prince_ui.touch_direction = 0;
+    s_jump_prince_ui.rendered_screen = -1;
+    jump_prince_game_restart(&s_jump_prince_game);
+    jump_prince_apply_input();
+    s_jump_prince_ui.last_tick = lv_tick_get();
+    jump_prince_draw();
+}
+
+static void jump_prince_exit_clicked_cb(lv_event_t *event)
+{
+    (void)event;
+    jump_prince_game_end(&s_jump_prince_game);
+    load_screen(ui_GameScreen);
+}
+
+static void jump_prince_screen_loaded_cb(lv_event_t *event)
+{
+    (void)event;
+    jump_prince_restart_clicked_cb(NULL);
+}
+
+static void game_jump_prince_clicked_cb(lv_event_t *event)
+{
+    (void)event;
+    load_screen(s_jump_prince_ui.screen);
+}
+
+static void setup_jump_prince_screen(void)
+{
+    jump_prince_game_init(&s_jump_prince_game);
+
+    s_jump_prince_ui.screen = lv_obj_create(NULL);
+    lv_obj_remove_flag(s_jump_prince_ui.screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(s_jump_prince_ui.screen, lv_color_hex(0x0F052D), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_jump_prince_ui.screen, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t *title = lv_label_create(s_jump_prince_ui.screen);
+    lv_label_set_text(title, "Jump Prince");
+    lv_obj_set_width(title, 480);
+    lv_obj_set_pos(title, 0, 14);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_28, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFEFDF9), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t *exit_btn = jump_prince_create_text_button(s_jump_prince_ui.screen, "Exit", 18, 12, 0xFEFDF9);
+    lv_obj_set_size(exit_btn, 72, 42);
+    lv_obj_add_event_cb(exit_btn, jump_prince_exit_clicked_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *restart_btn = jump_prince_create_text_button(s_jump_prince_ui.screen, "Restart", 374, 12, 0xDFE7FC);
+    lv_obj_set_size(restart_btn, 88, 42);
+    lv_obj_add_event_cb(restart_btn, jump_prince_restart_clicked_cb, LV_EVENT_CLICKED, NULL);
+
+    s_jump_prince_ui.screen_label = lv_label_create(s_jump_prince_ui.screen);
+    lv_label_set_text(s_jump_prince_ui.screen_label, "Stage 5");
+    lv_obj_set_pos(s_jump_prince_ui.screen_label, 196, 50);
+    lv_obj_set_style_text_font(s_jump_prince_ui.screen_label, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(s_jump_prince_ui.screen_label, lv_color_hex(0xD8F5A2), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    s_jump_prince_ui.play_area = lv_obj_create(s_jump_prince_ui.screen);
+    lv_obj_remove_style_all(s_jump_prince_ui.play_area);
+    lv_obj_set_size(s_jump_prince_ui.play_area, JUMP_PRINCE_PLAY_W, JUMP_PRINCE_PLAY_H);
+    lv_obj_set_pos(s_jump_prince_ui.play_area, 40, 78);
+    lv_obj_set_style_bg_color(s_jump_prince_ui.play_area, lv_color_hex(0x180E45), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_jump_prince_ui.play_area, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(s_jump_prince_ui.play_area, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_remove_flag(s_jump_prince_ui.play_area, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+    for(uint8_t y = 0; y < JUMP_PRINCE_MAP_H; y++) {
+        for(uint8_t x = 0; x < JUMP_PRINCE_MAP_W; x++) {
+            lv_obj_t *tile = lv_image_create(s_jump_prince_ui.play_area);
+            lv_image_set_src(tile, ui_img_jump_prince_tile_images[1][1]);
+            lv_obj_set_pos(tile, x * JUMP_PRINCE_TILE_PIXELS, y * JUMP_PRINCE_TILE_PIXELS);
+            lv_obj_remove_flag(tile, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+            s_jump_prince_ui.tiles[y][x] = tile;
+        }
+    }
+
+    s_jump_prince_ui.player = lv_image_create(s_jump_prince_ui.play_area);
+    lv_image_set_src(s_jump_prince_ui.player, ui_img_jump_prince_player_images[0][0]);
+    lv_obj_remove_flag(s_jump_prince_ui.player, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *left_btn = jump_prince_create_text_button(s_jump_prince_ui.screen, "Left", 40, 400, 0xC7F0BD);
+    lv_obj_t *jump_btn = jump_prince_create_text_button(s_jump_prince_ui.screen, "Jump", 192, 400, 0xF8DFA5);
+    lv_obj_t *right_btn = jump_prince_create_text_button(s_jump_prince_ui.screen, "Right", 344, 400, 0xC7F0BD);
+    lv_obj_remove_flag(left_btn, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(jump_btn, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(right_btn, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+    const int32_t charge_bg_x[3] = {50, 202, 354};
+    for(uint8_t i = 0; i < 3; i++) {
+        lv_obj_t *charge_bg = lv_obj_create(s_jump_prince_ui.screen);
+        lv_obj_remove_style_all(charge_bg);
+        lv_obj_set_size(charge_bg, 76, 8);
+        lv_obj_set_pos(charge_bg, charge_bg_x[i], 388);
+        lv_obj_set_style_bg_color(charge_bg, lv_color_hex(0x352B69), LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_opa(charge_bg, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_radius(charge_bg, 4, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_remove_flag(charge_bg, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+        s_jump_prince_ui.charge_bars[i] = lv_obj_create(charge_bg);
+        lv_obj_remove_style_all(s_jump_prince_ui.charge_bars[i]);
+        lv_obj_set_size(s_jump_prince_ui.charge_bars[i], 0, 8);
+        lv_obj_set_pos(s_jump_prince_ui.charge_bars[i], 0, 0);
+        lv_obj_set_style_bg_color(s_jump_prince_ui.charge_bars[i], lv_color_hex(0xF7C35F),
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_opa(s_jump_prince_ui.charge_bars[i], 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_radius(s_jump_prince_ui.charge_bars[i], 4, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_remove_flag(s_jump_prince_ui.charge_bars[i], LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    }
+
+    s_jump_prince_ui.control_pad = lv_obj_create(s_jump_prince_ui.screen);
+    lv_obj_remove_style_all(s_jump_prince_ui.control_pad);
+    lv_obj_set_size(s_jump_prince_ui.control_pad, 480, 98);
+    lv_obj_set_pos(s_jump_prince_ui.control_pad, 0, 382);
+    lv_obj_add_flag(s_jump_prince_ui.control_pad, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(s_jump_prince_ui.control_pad, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(s_jump_prince_ui.control_pad, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_event_cb(s_jump_prince_ui.control_pad, jump_prince_control_event_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(s_jump_prince_ui.control_pad, jump_prince_control_event_cb, LV_EVENT_PRESSING, NULL);
+    lv_obj_add_event_cb(s_jump_prince_ui.control_pad, jump_prince_control_event_cb, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(s_jump_prince_ui.control_pad, jump_prince_control_event_cb, LV_EVENT_PRESS_LOST, NULL);
+
+    lv_obj_add_event_cb(s_jump_prince_ui.screen, jump_prince_screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
+    s_jump_prince_ui.timer = lv_timer_create(jump_prince_timer_cb, JUMP_PRINCE_TIMER_PERIOD_MS, NULL);
+}
+
 static void game_snake_clicked_cb(lv_event_t *event)
 {
     (void)event;
@@ -1412,11 +1773,19 @@ void ui_app_init(void)
     set_clickable(ui_GameContainerReactionGame, game_rapid_tap_clicked_cb, NULL);
     set_clickable(ui_GameContainerWhackGame, game_whack_clicked_cb, NULL);
     set_clickable(ui_GameContainerNonogramGame, game_nonogram_clicked_cb, NULL);
+    set_clickable(ui_GameContainerJumpPrinceGame, game_jump_prince_clicked_cb, NULL);
+    if(ui_GameLabelJumpPrinceGameName) {
+        lv_obj_set_width(ui_GameLabelJumpPrinceGameName, 180);
+        lv_obj_set_x(ui_GameLabelJumpPrinceGameName, 0);
+        lv_obj_set_style_text_align(ui_GameLabelJumpPrinceGameName, LV_TEXT_ALIGN_CENTER,
+                                    LV_PART_MAIN | LV_STATE_DEFAULT);
+    }
 
     setup_snake_screen();
     setup_rapid_tap_screen();
     setup_whack_screen();
     setup_nonogram_screen();
+    setup_jump_prince_screen();
 
     load_screen(ui_GameScreen);
 }

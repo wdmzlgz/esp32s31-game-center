@@ -13,6 +13,7 @@ This example is the factory-style multimedia validation firmware for the ESP32-S
 ## Notes
 
 * The coffee demo image assets are packed into the `coffee_pjpg` partition and loaded through `esp_mmap_assets`.
+* Third-party notices, including the Jump Prince LVGL port attribution, are listed in `THIRD_PARTY_NOTICES.md`.
 
 ## Build and Flash
 

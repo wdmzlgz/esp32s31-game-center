@@ -44,6 +44,7 @@ LV_IMG_DECLARE(ui_img_snake_png);    // assets/snack.png
 LV_IMG_DECLARE(ui_img_reaction_png);    // assets/reaction.png
 LV_IMG_DECLARE(ui_img_whack_png);    // assets/whack.png
 LV_IMG_DECLARE(ui_img_nonogram_png);    // assets/Nonogram.png
+LV_IMG_DECLARE(ui_img_jumpprince_png);    // assets/JumpPrince.png
 
 // UI INIT
 void ui_init(void);

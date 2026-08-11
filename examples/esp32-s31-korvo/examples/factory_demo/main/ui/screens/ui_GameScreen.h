@@ -28,6 +28,9 @@ extern lv_obj_t * ui_GameImageWhack;
 extern lv_obj_t * ui_GameContainerNonogramGame;
 extern lv_obj_t * ui_GameLabelNonogramGameName;
 extern lv_obj_t * ui_GameImageNonogram;
+extern lv_obj_t * ui_GameContainerJumpPrinceGame;
+extern lv_obj_t * ui_GameLabelJumpPrinceGameName;
+extern lv_obj_t * ui_GameImageJumpPrince;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

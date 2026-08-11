@@ -7,6 +7,12 @@ file(GLOB UI_SRCS
     "${UI_DIR}/fonts/*.c"
     "${UI_DIR}/images/*.c"
 )
+list(APPEND UI_SRCS
+    "${UI_DIR}/jump_prince_game.c"
+    "${UI_DIR}/images/ui_img_jumpprince_png.c"
+    "${UI_DIR}/images/ui_img_jump_prince_sprites.c"
+)
+list(REMOVE_DUPLICATES UI_SRCS)
 
 idf_component_register(
     SRCS
